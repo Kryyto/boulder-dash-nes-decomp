@@ -1,0 +1,99 @@
+# Coverage: attract mode, 2-player, colour select, password entry, pause.
+# Run with: python tools/nesemu.py ROM tools/scripts/menus.txt --cdl build/menus.cdl
+
+# attract mode: let the demo cycle a few times, then interrupt one with Start
+wait 7000
+tap start
+wait 120
+save title
+
+# 2-player game: Select toggles 1P/2P on the title
+tap select
+wait 30
+tap down
+wait 30
+tap start
+wait 120
+tap start
+wait 120
+save map2p
+tap a                 # password screen
+wait 60
+tap a                 # empty password
+wait 240
+tap a
+wait 200
+tap right
+wait 30
+tap a
+wait 300
+tap a
+wait 300
+repeat 30
+random 400
+end
+print 2p done
+peek 001F 3
+
+# colour select on the world map
+load title
+tap start
+wait 120
+repeat 16
+tap right
+end
+repeat 16
+tap left
+end
+
+# password entry: move the cursor, type, delete, confirm
+tap a
+wait 60
+repeat 6
+tap up
+tap right
+tap a
+end
+repeat 3
+tap b
+end
+repeat 8
+tap down
+tap left
+tap a
+end
+tap start
+wait 120
+tap a
+wait 240
+peek 001F 3
+
+# pause and select during play
+load title
+tap start
+wait 120
+tap a
+wait 60
+tap a
+wait 240
+tap a
+wait 200
+tap right
+wait 30
+tap a
+wait 300
+tap a
+wait 400
+random 200
+tap start
+wait 120
+tap select
+wait 60
+tap start
+wait 60
+random 300
+hold select 60
+wait 300
+hold b 60
+random 600
+peek 001F 3

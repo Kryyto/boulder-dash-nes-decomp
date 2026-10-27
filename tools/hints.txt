@@ -1,0 +1,504 @@
+# Disassembler hints. Addresses are hex CPU addresses ($8000-$FFFF = PRG).
+#
+#   code ADDR [NAME]         extra code entry point
+#   sub ADDR [NAME]          extra subroutine entry point
+#   name ADDR NAME           name a ROM label or RAM variable
+#   mapreg ADDR NAME         ROM address written as a mapper register (a constant, not a label)
+#   comment ADDR text        comment line above ADDR (repeat for more lines; no hash signs)
+#   dispatch ADDR [NAME]     "jsr ADDR" is followed by an inline .word jump table
+#   inline ADDR COUNT        explicit entry count for an inline table at ADDR
+#   words ADDR COUNT         table of code pointers
+#   dwords ADDR COUNT        table of data pointers
+#   rtstable ADDR COUNT      table of (code pointer - 1), for RTS dispatch
+#   splittable LO HI COUNT [rts]   separate low/high byte pointer tables
+#   data ADDR                never trace code into ADDR
+#
+# Names marked with a trailing "_q" are educated guesses still to be confirmed.
+
+# ============================================================================
+# Mapper (MMC1): writes to these ROM addresses hit the serial registers
+# ============================================================================
+mapreg 9FFF MMC1_CTRL
+mapreg BFFF MMC1_CHR0
+mapreg DFFF MMC1_CHR1
+mapreg FFF9 MMC1_PRG
+comment FF80 INC on a ROM byte with bit 7 set resets the MMC1 shift register
+name FF9E mmc1_reset_byte
+sub A263 MMC1_SetCtrl          # A = value, shifted out 5 bits
+sub A28B MMC1_SetCHR1
+sub A29F MMC1_WritePRG_unused
+comment A29F no caller: this board has no PRG banking
+sub A2B3 MMC1_WritePRG2_unused
+comment A2B3 no caller: this board has no PRG banking
+
+# ============================================================================
+# RAM
+# ============================================================================
+name 0017 nmi_done             # set to $FF by NMI, polled by WaitForNMI
+name 0018 nmi_ppu_enable       # nonzero: NMI does OAM DMA + NmiPpuUpdate
+name 0019 ppuctrl_shadow
+name 001A ppumask_shadow
+name 001B scroll_x
+name 001C scroll_y
+name 001E frame_count          # incremented every NMI
+name 001F game_state           # index into GameStateTable
+name 0020 game_substate
+name 0023 joy1_held
+name 0024 joy2_held
+name 0025 joy1_prev
+name 0026 joy2_prev
+name 0029 joy1_pressed
+name 002A joy2_pressed
+name 002B palette_buf:32          # 32 bytes: BG at $2B, sprites at $3B; uploaded by NMI request bit 0
+name 004B oam_index            # next free slot in oam_buf
+name 004C nmi_requests         # bit0 palette, bit1 rendering on, bit2 rendering off,
+                               # bit3 vram_buffer, bit4 4 metatiles, bit5 6 metatiles
+name 006D mmc1_ctrl_shadow
+name 006E chr0_bank
+name 006F chr1_bank
+name 0070 pause_state          # CavePlay: 0 playing, 1-2 paused (Start)
+name 0072 play_mode            # bit 7: attract demo, bit 0: current player (2P)
+# per-player block, 10 bytes ($74 player 1, $7E player 2; see PlayerOffset)
+name 0074 loop_count           # +1 after world 6 (harder loop / ending)
+name 0075 world_stage          # high nibble world 0-5, low nibble stage 0-3
+name 0076 stages_cleared       # one bit per stage of the current world
+name 0077 lives
+name 0078 score:3
+name 007B next_life_score:3  # extra life when score reaches it; then +2000
+name 008A high_score:3
+name 008D cave_index           # world*4 + stage, 0-23
+name 008E diamond_value        # cave header byte 2
+name 008F bonus_diamond_value  # cave header byte 3
+name 0090 exit_open            # nonzero once enough diamonds are collected
+name 0091 player_phase         # bits 4-5 direction (0 up 1 down 2 left 3 right), low nibble phase:
+                               # 0 idle, 1 walking, 2 pushing, 3 dying, 4 in exit, 6-8 out of time
+name 0092 player_phase_timer
+name 0093 player_y:2             # 16-bit pixels ($94 high); cell = /16 (GetPlayerCell)
+name 0095 player_x:2             # 16-bit pixels ($96 high)
+name 009A joy_held             # current player's buttons
+name 009B joy_pressed          # current player's new presses
+name 009C joy_repeat_timer
+name 009D giveup_counter       # counts while A+B are held; >= $40 gives up
+name 00AE diamonds_needed:3      # 3 decimal digits, $AE ones .. $B0 hundreds
+name 00B1 time_left:3            # 3 decimal digits, $B1 ones .. $B3 hundreds
+name 00B4 magic_wall_timer
+name 00B5 magic_wall_state     # bit0 active, bit1 expired
+name 00B7 amoeba_state         # $FF no amoeba; bits 0-1 walker passes, bit 7 room to grow found;
+                               # becomes 0 after 4 passes without room: amoeba turns to diamonds
+name 00B8 amoeba_origin:2        # row | direction bits 6-7, col in $B9
+name 00BA amoeba_grow_interval # starts $FF, -4 per growth
+name 00BB amoeba_walker:2        # row | direction, col in $BC
+name 00BD amoeba_grow_countdown
+name 00BE camera_x:2             # 16-bit pixels
+name 00C0 camera_y:2             # 16-bit pixels
+name 00C7 metatile_queue:36       # 6 entries x 6 bytes: addr lo, addr hi ($FF = empty), 4 tiles
+name 00EB attr_queue:18           # 6 entries x 3 bytes: addr lo, addr hi, value
+name 00FE frame_phase          # incremented by state handlers; low 3 bits schedule cave work
+name 0116 vram_buffer:32          # NMI bit 3: [lo, hi, count, bytes...]... terminated by $FF
+name 0176 warm_boot_sig:3        # "SAS" once initialized; keeps scores over a reset
+name 0200 oam_buf:256
+name 03E0 cave_grid:880            # 40 x 22 tiles, high nibble = type, low nibble = state:
+                               # 0 space, 1 vacated (clears to 0), 2 dirt, 3 steel, 4 exit,
+                               # 5 brick, 6 magic wall, 7 boulder, 8 diamond,
+                               # 9 explosion to diamond, A explosion to space,
+                               # B firefly, C butterfly, D amoeba, E player
+                               # low nibble: bit0 falling, bit3 already processed this scan
+name 0750 redraw_count         # cell redraw list consumed by BuildMetatileQueue
+name 0751 redraw_index
+name 0753 redraw_list:165          # entries: tile, row, col (max $37)
+name 07F8 explosion_timers:8     # 8 slots for explosion-to-diamond cells
+
+# ============================================================================
+# Reset, main loop, NMI
+# ============================================================================
+name A000 MainInit
+name A00B MainLoop
+sub A022 InitGame
+comment A022 Checks warm_boot_sig; on a cold boot clears the high scores and
+comment A022 starts with state 0 (boot screen), otherwise goes straight to the title.
+sub A0C9 WaitForNMI
+sub A12B ReadJoypads
+comment A12B Reads both pads twice and only accepts matching reads (DPCM glitch guard),
+comment A12B then derives the newly pressed buttons.
+words B06E 8
+comment A2C7 NMI: if nmi_ppu_enable, OAM DMA and NmiPpuUpdate; then the sound driver.
+sub B001 NmiPpuUpdate
+comment B001 Restores scroll/PPUCTRL, MMC1 control and CHR banks, then runs one
+comment B001 handler per set bit of nmi_requests (table NmiRequestHandlers).
+name B06E NmiRequestHandlers
+name B07F Nmi_UploadPalette
+name B083 Nmi_RenderingOn
+name B08D Nmi_RenderingOff
+name B097 Nmi_FlushVramBuffer
+sub B0C1 Nmi_FlushMetatiles4
+name B129 Nmi_FlushMetatiles6
+
+# ============================================================================
+# PPU / OAM helpers
+# ============================================================================
+sub A0A2 UploadPalette
+sub A0D6 ClearScreen
+sub A0DD HideAllSprites
+sub A0F9 ClearNametables
+sub A193 DisableRendering      # also disables NMI
+sub A1A6 SetPPUAddr            # X = high, Y = low
+sub A1AD RestorePPUCtrlScroll
+sub A1BD DrawPPUString
+comment A1BD X/Y = pointer (X high). Stream: lo hi = address, then tile bytes;
+comment A1BD FE lo hi = new address, FD = next row, FC = toggle +32 increment,
+comment A1BD FB n = copy n raw bytes, FF = end.
+sub A2F4 ResetScroll
+sub A313 ReadVramTo600         # copies 512 bytes of VRAM to $0600
+sub A334 LoadNametable         # A = 0/1/2 ($2000/$2400/$2800), X/Y = pointer to 1 KB
+sub A367 DrawPPUStringCustom_unused
+comment A367 Like DrawPPUString with configurable escape bytes. Never executed.
+sub A40E LoadBGPalette
+sub A419 LoadSpritePalette
+sub A43D BlackPaletteBuf
+sub A44C EnableNMI
+sub A456 FadeIn
+sub A48A FadeOut
+sub A4C0 WaitFrames            # X = frame count
+sub A4E1 WaitSprite0Hit
+sub A4EE RequestRenderingOn
+sub A4F5 BlackoutNow
+sub A505 DrawMetaspriteWorld
+comment A505 Sprite list at X/Y (X high): dy, tile, attr, dx ... 7F. Position in
+comment A505 $55-$58 (world pixels), offset by the camera; off-screen parts clipped.
+sub A5AA DrawMetaspriteScreen
+sub A5E0 HideUnusedSprites
+sub A822 PlayerOffset          # X = 0 or $0A for the per-player block
+dispatch A4CB JumpTableInline
+words 8643 51          # sound driver command handlers, indexed by sub_8631
+
+# ============================================================================
+# Sound driver (jump table at $8000)
+# ============================================================================
+sub 8000 Sound_Init
+sub 8003 Sound_Play            # A = sound / music id
+sub 8006 Sound_Update          # called from NMI
+sub BFCA PlaySoundEffect       # A = effect, remapped per music/cave
+
+# ============================================================================
+# Game state machine: GameStateTable, indexed by game_state
+# ============================================================================
+words A5F2 19
+name A5F2 GameStateTable
+sub A258 SetGameState          # A = state; clears the substate bytes $20-$22
+name A618 State00_BootScreen
+name A67E State01_Title
+name A686 State02_TitleMenu
+name A82D State03_Password
+name A9E1 State04_NextStage
+name A9E7 State05_WorldSelectInit
+name A9F2 State06_WorldSelect
+name AA2B State07_StageIntroInit
+comment AA2B state $07: never reached during coverage runs
+name AA36 State08_StageIntro
+name AB2E State09_CaveSetup
+name AB5E State0A_CaveIntro
+name AB76 State0B_CavePlay
+name ACA1 State0C_CaveCleared
+name ADF4 State0D_LostLife
+name AEA3 State0E_GameOver
+name EABB State0F_Ending
+name EC82 State10_EndingScene  # the first world's scene again, then the next level
+name ED09 State11_Credits      # after loop 4: each world's scene with names, then the last screen
+name EFF5 State12_NextLevel
+sub B6AA WorldSelect_Input
+
+# boot screen and title
+sub AFF3 ResetPlayerScore      # X = player block: score and next extra life from $DB41
+sub D7D9 Title_Update
+comment D7D9 Substates: draw the title, the logo scrolls up and settles, the score
+comment D7D9 panel, then waiting (1P/2P with Select/Up/Down, Start); idle starts the demo.
+sub DA64 FillVram1K            # A = value, X/Y = PPU address
+sub DA79 FillVram64
+sub DA89 Title_Split           # below sprite 0: the score panel, from $2B40 at a fixed scroll
+sub DAAA LoadScore             # X/Y = 3-byte score -> $AB-$AD -> digits at $0100
+sub D337 ScoreToDigits
+sub D368 DivMod24              # $4D-$4F / $50, remainder in $67
+sub DAC2 DigitsToBuffer        # X = offset in vram_buffer
+sub DB47 Title_PlayerCursor
+sub DB62 Title_LogoSprites
+sub DBD8 Title_FallingDiamonds
+sub DC78 Title_PanelSlide
+sub DCB5 Title_RockfordSprites
+sub DD5F Title_RockfordsUpdate
+comment DD5F Two Rockfords, 12 bytes each at $0403: state, timer, ?, y (24-bit),
+comment DD5F x (24-bit), y speed (24-bit). States: stand, walk, -, jump up, jump off, walk in, walk.
+sub DF05 Title_RockfordFall
+sub DF3D Title_RockfordDrift
+
+# map screens
+sub A773 MapScreenInit
+sub A78E MapScreenSetup        # map nametable, palettes, COLOR SELECT colour
+sub A7EC TextBoxOpen
+sub A802 TextBoxRow            # X/Y = table of row pointers, row zp_21: 50 bytes to vram_buffer
+sub D137 GameOver_Cursor
+sub D152 PasswordDigits        # the 6 digits at $4D-$52 as sprites
+sub D184 PasswordCursor
+sub D195 MapCursor             # world $4D, stage $4E
+sub D1DA MapStageMarks
+sub D21A MapStageMark
+sub D27E MapTitles
+sub BB8A CaveFirstScreen
+comment BB8A Draws the first screenful by scrolling the camera across it from 256
+comment BB8A pixels to the left (the camera's own strips), then loads the palettes.
+
+# scenes and endings
+sub DF6D NextStage_Update      # state 4: the world's scene, then scroll to the map
+sub E012 PressedAOrB           # -> A: the current player's A/B presses, X = player
+sub E0D7 PlayScene             # cave_grid[0] = the scene (world)
+name E0E9 Scene0
+name E1F1 Scene1
+name E2C4 Scene2
+name E3F6 Scene3
+name E4F4 Scene4
+name E6BD Scene5
+sub E128 Scene_TitleLetters
+sub E229 Scene_Walk
+sub E2D8 Scene_WalkLeft
+sub E5E1 Scene4_Bubble
+sub E78D DrawActor             # at y $80, x $03F3
+sub E791 DrawActorAt           # y in $55, x $03F3
+sub E7A0 Scene5_Gems
+sub E7F2 Scene5_Diamonds
+sub E853 TypeText              # one character per 4 frames from $03E2 to the VRAM buffer
+sub E942 DrawMetaspriteWindow  # behind the background outside x $40-$BF, y $30-$8F
+sub E996 SetScreenPos          # Y = y, X = x -> $55-$58
+sub E9A1 SceneFrame
+sub E9C4 ScenePicture
+sub E9FB SceneAttributes
+sub EA15 ScenePalette
+sub EA2F SceneObjects
+sub EB95 Ending_Diamonds
+sub EBD6 Ending_Rockford
+sub EC52 Ending_JumpStep
+sub EC77 Ending_JumpStart
+sub F19B NextLevel_Sprites
+sub F1F9 NextLevel_Rockford
+
+# ============================================================================
+# Cave decoder
+# ============================================================================
+sub B789 LoadCave
+comment B789 Header via CaveHeaderTable (12 bytes): start row, start col, diamond value,
+comment B789 bonus diamond value, then (diamonds needed, time) for loop_count 0..3.
+comment B789 The layout itself lives in CHR ROM: CaveLayoutLocations gives CHR bank and
+comment B789 address; 22 rows x 20 bytes are read through PPUDATA, two 4-bit tiles per byte.
+sub B69A WorldStageToCave      # A = world_stage -> A = cave index
+sub B843 BinToDec3             # A -> digits in $4D (ones), $4E, $4F
+name B866 CaveLayoutLocations  # 24 x 3 bytes: CHR bank, address lo, address hi
+sub B8AE ApplyCavePatches
+comment B8AE For loop_count >= 2, applies (row, col, tile) patches from CavePatchTable,
+comment B8AE then looks for tile $D0 to set up the amoeba.
+name B94A CavePatchTable
+name D08B CaveRowPointers      # 22 pointers into cave_grid
+dwords F220 24
+name F220 CaveHeaderTable
+
+# ============================================================================
+# Cave play
+# ============================================================================
+sub D2AD UpdateStatusSprites   # score, diamonds, time drawn as sprites
+sub C373 PlayerHazards
+sub C06B PlayerInput
+sub C413 ScanCave
+comment C413 Frame-sliced by frame_phase and 7: phases 1-4 each run ProcessCell over
+comment C413 5 rows bottom-up (columns 38..1), phases 5-7 run ScanCave2 over 7 rows top-down.
+sub C468 ProcessCell
+comment C468 Gravity for boulders/diamonds (fall, land, roll off round things, magic wall),
+comment C468 crush checks, and dispatch for fireflies and butterflies.
+name C632 Cell_Firefly
+name C6CD Cell_Butterfly
+sub C3C9 KillPlayer
+sub C7CD ExplodeToSpace        # firefly dies, or the player
+name C7E4 ExplodeToDiamonds    # butterfly dies
+sub C83B Explode3x3            # fill $50 around ($4D, $4E); $4F set if the player was hit
+sub C93E AwardEnemyScore
+name C9A0 ScanCave2_Rows1
+name C9A7 ScanCave2_Rows8
+name C9AE ScanCave2_Rows15
+sub C9D3 ProcessCell2
+comment C9D3 Clears processed bits, turns vacated cells into space, animates explosions,
+comment C9D3 and turns amoeba into diamonds once amoeba_state is 0.
+sub CDAE MagicWallTimer
+sub CE51 AmoebaUpdate
+sub CFC6 TickTime              # every 64 frames; at 0 the player phase becomes 6
+sub B197 UpdateCamera
+sub CA4D BuildMetatileQueue    # redraw_list -> metatile_queue / attr_queue for the NMI
+sub D0B7 QueueCellRedraw       # A = tile, Y = row, X = col; carry set if the list is full
+
+# ============================================================================
+# Player
+# ============================================================================
+comment C06B Every 8 frames in phase 0: d-pad picks a direction. With A or B held the
+comment C06B player snaps (digs or collects the cell next to it without moving; A/B +
+comment C06B Left/Right pushes a boulder). Otherwise it walks: dirt is dug, diamonds
+comment C06B collected, the open exit ends the cave, a boulder starts a push (phase 2).
+name C096 PlayerPhaseTable
+name C0A8 Player_Idle
+name C0B8 Player_Snap
+name C150 Player_Walk
+name C209 Player_Walking        # 8 frames, 2 pixels per frame toward the new cell
+name C272 Player_Pushing        # 24 frames holding toward the boulder, then push if space
+name C30D Player_Dying          # sprite flies up with gravity, then state 0D (or title in demo)
+name C35C Player_OutOfTime      # phases 6-7: 32 frames each
+name C367 Player_OutOfTimeEnd   # phase 8: state 0D
+comment C373 Every 8 frames: gives up after holding A+B long enough (phase 6), and
+comment C373 kills the player when a firefly or butterfly is next to it.
+sub C402 IsEnemy               # carry set if the cell at Y/X is a firefly or butterfly
+sub CC56 GetPlayerCell         # -> Y row, X col
+sub CC7D GetCell               # Y row, X col -> A tile
+sub D077 SetCell               # A tile, Y row, X col
+sub CC8F CollectDiamond
+comment CC8F Adds diamond_value (bonus_diamond_value once the exit is open) and counts
+comment CC8F diamonds_needed down; at zero opens the exit (ExitPositions) and plays sound 5.
+name CD6B ExitPositions        # per cave: row, col of the exit
+sub CCE2 AddScore
+
+# ============================================================================
+# Enemies
+# ============================================================================
+comment C632 Low 2 bits = heading. Each scan: if something rests on top, explode;
+comment C632 else try turning left, then straight ahead, else turn right in place.
+comment C6CD Same as the firefly but turns right first; also explodes on touching amoeba.
+sub C803 ProbeUp               # Z set if the cell is empty, carry set if amoeba
+sub C817 ProbeDown
+sub C820 ProbeLeft
+sub C826 ProbeRight
+
+# ============================================================================
+# Amoeba
+# ============================================================================
+comment CE51 Every 8 frames a walker follows the amoeba edge for 25 steps. Each empty or
+comment CE51 dirt cell it passes marks "room to grow" and counts amoeba_grow_countdown
+comment CE51 down; at zero that cell becomes amoeba and the interval shrinks by 4.
+sub CF5E AmoebaStepLeft
+sub CF6A AmoebaStepUp
+sub CF76 AmoebaStepRight
+sub CF82 AmoebaStepDown
+sub CF99 AmoebaTryGrow
+sub C044 AmoebaSound           # caves 6, 12 and 22
+
+# ============================================================================
+# Sound driver
+# ============================================================================
+comment 8011 Two request slots: music_request and sfx_request. Each sound id points to
+comment 8011 a header in SoundTable: channel mask (bit 7 = effect), then one stream
+comment 8011 pointer per channel. Effects take their channels over from the music.
+name 8011 SoundInitImpl
+name 811C SoundPlayImpl
+comment 811C A = id (0 stops all). Priorities come from a per-id bitmap (SoundAllowed).
+sub 8189 SoundAllowed
+name 81B4 SoundUpdateImpl
+name 805C NotePeriodTable      # 96 pulse periods, one per semitone
+name 894E SoundTable           # id 0 unused
+dwords 8950 35
+sub 824F SoundTempoTick        # tempo_acc += tempo; carry = one tick (unless music paused)
+sub 829D SoundStartRequests
+sub 82B8 StartMusic
+name 8337 StartSfx             # ids $19/$1A pause/resume the music
+sub 83C1 SilenceSfxChannels
+sub 83D5 MusicReadChannel
+comment 83F8 Music stream: < $80 sets the note length, $80-$8F plays a note (plus transpose),
+comment 83F8 >= $90 is a command (SoundCommandTable).
+sub 83F8 MusicParse
+sub 8478 SfxReadChannel
+comment 849F Effect stream: < $90 is a duration (stop reading), >= $90 a command.
+sub 849F SfxParse
+sub 84B4 SfxUpdateChannel
+sub 84C2 SfxWritePeriod
+sub 8502 WriteChannelVolume
+sub 8631 SoundCommand          # A = command - $90
+name 8643 SoundCommandTable
+sub 887A SilenceChannel
+name 0300 snd_ram              # $0300-$03A0: sound driver state
+name 0301 music_request        # bit 7 set once started
+name 0302 sfx_request
+name 0303 music_playing
+name 0304 sfx_playing
+name 0305 music_paused
+name 0306 tempo:2                # 16-bit, added to tempo_acc ($05) every frame
+name 0308 tempo_tick
+name 030A sfx_channels
+name 030B music_channels
+name 030C snd_channel          # channel being processed (0-3: sq1, sq2, tri, noise)
+name 0310 sfx_ptr_lo:4
+name 0314 sfx_ptr_hi:4
+name 0318 sfx_period_lo:4
+name 031C sfx_period_hi:4
+name 0324 sfx_timer:4
+name 0328 sfx_flags:4
+name 0330 sfx_volume:4
+name 0338 sfx_duty:2
+name 033A music_ptr_lo:4
+name 033E music_ptr_hi:4
+name 034A note_timer:4
+name 034E note_length:4
+name 0352 transpose:4
+name 0356 note:4
+name 035E chan_volume:4
+name 0362 chan_flags:4
+name 0366 release_mode:4
+name 86A9 SndCmd_90_RestEnd
+name 86B4 SndCmd_91_OctaveUp
+name 86BE SndCmd_92_OctaveDown
+name 86C8 SndCmd_93_SetTranspose
+name 86CF SndCmd_94_SetVolume
+name 86D6 SndCmd_95_Hold
+name 86E1 SndCmd_96_SetDuty
+name 86E8 SndCmd_97_EnvelopeOn
+name 86FA SndCmd_98_EnvelopeOff
+name 8708 SndCmd_99_ReleaseMode1
+name 8711 SndCmd_9A_ReleaseMode2
+name 8722 SndCmd_9B_ReleaseMode3
+name 872B SndCmd_9C_ReleaseMode4
+name 8737 SndCmd_9D_ReleaseOff
+name 8740 SndCmd_9E_SetSweepShadow
+name 8747 SndCmd_9F_Nop0F
+name 8748 SndCmd_A0_Nop10
+name 8749 SndCmd_A1_Jump
+name 8759 SndCmd_A2_EndMusicChannel
+name 8772 SndCmd_A3_LoopStart
+name 8796 SndCmd_A4_LoopEnd
+name 87BF SndCmd_A5_SfxJump
+name 87CF SndCmd_A6_SfxWait
+name 87D8 SndCmd_A7_SfxSetVolume
+name 87DF SndCmd_A8_SfxSetPeriod
+name 87F4 SndCmd_A9_SfxSetDuty
+name 87FB SndCmd_AA_SfxSetSweep
+name 8809 SndCmd_AB_SfxAddVolume
+name 8814 SndCmd_AC_SfxAddPeriod
+name 8831 SndCmd_AD_SfxIncVolume
+name 8835 SndCmd_AE_Nop1E
+name 8836 SndCmd_AF_SfxIncDuty
+name 883A SndCmd_B0_SfxSubVolume
+name 8845 SndCmd_B1_SfxSubPeriod
+name 8862 SndCmd_B2_SfxDecVolume
+name 8866 SndCmd_B3_Nop23
+name 8868 SndCmd_B4_Nop24
+name 8867 SndCmd_B5_Nop25
+name 8869 SndCmd_B6_EndSfxChannel
+name 88A5 SndCmd_B7_Nop27
+name 88A6 SndCmd_B8_Nop28
+name 88A7 SndCmd_B9_SfxRawRegs
+name 88D9 SndCmd_BA_Nop2A
+name 88DA SndCmd_BB_SetTempo
+name 88E7 SndCmd_BC_RepeatStart
+name 88FD SndCmd_BD_RepeatEnd
+name 8910 SndCmd_BE_Call
+name 8934 SndCmd_BF_Return
+name 8941 SndCmd_C0_Nop30
+name 8942 SndCmd_C1_SetDetune
+name 8949 SndCmd_C2_Nop32
+
+# ============================================================================
+# Misc
+# ============================================================================
+sub DEF5
+comment DEF5 never executed during coverage runs (no direct caller)
+
+# B04A.. pushes $B060 then jumps through zp_65: handlers return to B061
+code B061

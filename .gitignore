@@ -1,0 +1,10 @@
+# Never commit copyrighted game data: the ROM, or anything generated from it
+*.nes
+*.cdl
+*.bdfx
+/build/
+/assets/
+# the disassembly is generated from your ROM by tools/disasm.py
+/src/prg.s
+/src/ram.inc
+__pycache__/

@@ -1,0 +1,18 @@
+# boot -> title -> world map -> empty password -> world select (state 6)
+wait 300
+tap start
+wait 60
+tap start
+wait 60
+tap start
+wait 120
+tap a
+wait 60
+tap a
+wait 240
+tap a
+wait 200
+tap right
+wait 30
+tap a
+wait 300
