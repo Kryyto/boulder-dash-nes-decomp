@@ -7,19 +7,18 @@ attract demo, menus, password, world map, all 24 caves and 4 difficulty
 loops, game over, the scenes after each world, the ending and the credits,
 with the original music and sound effects.
 
-> **Unofficial fan project.** It is not affiliated with, endorsed by or
-> connected to BBG Entertainment, First Star Software, Victor Musical
-> Industries / JVC, Data East or Nintendo. "Boulder Dash" and "NES" are
-> trademarks of their respective owners. **This repository contains no game
-> code, graphics, levels, music or text from the game**, and no ROM.
+> **Unofficial fan project.** It is not affiliated with, endorsed by or connected to
+> BBG Entertainment, First Star Software, Victor Musical Industries / JVC, Data East or Nintendo.  
+> "Boulder Dash" and "NES" are trademarks of their respective owners.  
+> **This repository contains no game code, graphics, levels, music or text from the game**, and no ROM.  
 
 ## You need your own ROM
 
-**Nothing here works without a ROM of the game.** The port reads everything it
-needs from the ROM when it starts: the code tables, the caves, the graphics,
-the music. The disassembly is also generated from it. You must use a copy
-you own legally, for example one dumped from your own cartridge. Don't ask
-for ROMs in the issues, and never commit one: `.gitignore` excludes `*.nes`.
+**Nothing here works without a ROM of the game.**  
+The port reads everything it needs from the ROM when it starts:
+the code tables, the caves, the graphics, the music.
+The disassembly is also generated from it. You must use a copy you own legally,
+for example one dumped from your own cartridge. Don't ask for ROMs in the issues, and never commit one: `.gitignore` excludes `*.nes`.
 
 The expected file is the USA release:
 
@@ -140,3 +139,11 @@ src/            assembler glue; prg.s and ram.inc are generated from your ROM
 
 Generated from the ROM, and never committed: `src/prg.s`, `src/ram.inc`,
 `assets/` (header and CHR), `build/` (assembled ROM, fixtures, binaries).
+
+## License
+
+The code and documentation in this repository are under the [MIT License](LICENSE).
+It covers this project's own work only. The game itself (its code, graphics,
+levels, music and text, and anything generated from your ROM, such as
+`src/prg.s`, `assets/` or the fixtures) belongs to its rights holders and is
+not covered by it.
